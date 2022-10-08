@@ -27,15 +27,15 @@ def activate():
             
             db = get_db()
             attempt = db.execute(
-                QUERY, (number, utils.U_UNCONFIRMED)
+                "select * from activationlink where challenge=? and state =? and CURRENT_TIMESTAMP between created and validuntil" , (number, utils.U_UNCONFIRMED)
             ).fetchone()
 
             if attempt is not None:
                 db.execute(
-                    QUERY, (utils.U_CONFIRMED, attempt['id'])
+                    "update activationlink set state=? where id=?", (utils.U_CONFIRMED, attempt['id'])
                 )
                 db.execute(
-                    QUERY, (attempt['username'], attempt['password'], attempt['salt'], attempt['email'])
+                    "insert into user (username,password,salt,email) values (?,?,?,?)", (attempt['username'], attempt['password'], attempt['salt'], attempt['email'])
                 )
                 db.commit()
 
@@ -67,7 +67,7 @@ def register():
             if not utils.isUsernameValid(username):
                 error = "Username should be alphanumeric plus '.','_','-'"
                 flash(error)
-                return render_template(auth/register.html)
+                return render_template('auth/register.html')
 
             if not password:
                 error = 'Password is required.'
@@ -77,7 +77,7 @@ def register():
             if db.execute('SELECT id FROM user WHERE username = ?', (username,)).fetchone() is not None:
                 error = 'User {} is already registered.'.format(username)
                 flash(error)
-                return render_template(auth/register.html)
+                return render_template('auth/register.html')
             
             if ((not email) or (not utils.isEmailValid(email))):
                 error =  'Email address invalid.'
@@ -87,7 +87,7 @@ def register():
             if db.execute('SELECT id FROM user WHERE email = ?', (email,)).fetchone() is not None:
                 error =  'Email {} is already registered.'.format(email)
                 flash(error)
-                return render_template(auth/register.html)
+                return render_template('auth/register.html')
             
             if (not utils.isPasswordValid(password)):
                 error = 'Password should contain at least a lowercase letter, an uppercase letter and a number with 8 characters long'
@@ -99,8 +99,7 @@ def register():
             number = hex(random.getrandbits(512))[2:]
 
             db.execute(
-                QUERY,
-                (number, utils.U_UNCONFIRMED, username, hashP, salt, email)
+                "insert into activationlink (challenge,state,username,password,salt,email) values (?,?,?,?,?,?)", (number, utils.U_UNCONFIRMED, username, hashP, salt, email)
             )
             db.commit()
 
@@ -152,19 +151,19 @@ def confirm():
                 flash(error)
                 return render_template('auth/change.html', number=authid)
 
-            db = ?
+            db = get_db()
             attempt = db.execute(
-                QUERY, (authid, utils.F_ACTIVE)
+                "select * from forgotlink where challenge=? and state =? and CURRENT_TIMESTAMP between created and validuntil", (authid, utils.F_ACTIVE)
             ).fetchone()
             
             if attempt is not None:
                 db.execute(
-                    QUERY, (utils.F_INACTIVE, attempt['id'])
+                    "update forgotlink set state=? where id=?", (utils.F_INACTIVE, attempt['id'])
                 )
                 salt = hex(random.getrandbits(128))[2:]
                 hashP = generate_password_hash(password + salt)   
                 db.execute(
-                    QUERY, (hashP, salt, attempt['userid'])
+                    "update user set password=?, salt=? where id=?", (hashP, salt, attempt['userid'])
                 )
                 db.commit()
                 return redirect(url_for('auth.login'))
@@ -188,7 +187,7 @@ def change():
             
             db = get_db()
             attempt = db.execute(
-                QUERY, (number, utils.F_ACTIVE)
+                "select * from forgotlink where challenge=? and state =? and CURRENT_TIMESTAMP between created and validuntil", (number, utils.F_ACTIVE)#Challenge es el link generado para recuperacion de contraseña
             ).fetchone()
             
             if attempt is not None:
@@ -196,7 +195,7 @@ def change():
         
         return render_template('auth/forgot.html')
     except:
-        return render_template(TEMP)
+        return render_template('auth/forgot.html')
 
 
 @bp.route('/forgot', methods=('GET', 'POST'))
@@ -206,27 +205,27 @@ def forgot():
             return redirect(url_for('inbox.show'))
         
         if request.method == 'POST':
-            email = ?
+            email = request.form["email"]
             
-            if (? or (not utils.isEmailValid(email))):
+            if (not email or (not utils.isEmailValid(email))):
                 error = 'Email Address Invalid'
                 flash(error)
                 return render_template('auth/forgot.html')
 
             db = get_db()
             user = db.execute(
-                QUERY, (email,)
+                "select * from user where email=?", (email,)
             ).fetchone()
 
             if user is not None:
                 number = hex(random.getrandbits(512))[2:]
                 
                 db.execute(
-                    QUERY,
+                    "update forgotlink set state=? where userid=?",
                     (utils.F_INACTIVE, user['id'])
                 )
                 db.execute(
-                    QUERY,
+                    "insert into forgotlink (userid,challenge,state) values (?,?,?)",
                     (user['id'], number, utils.F_ACTIVE)
                 )
                 db.commit()
@@ -246,7 +245,7 @@ def forgot():
 
         return render_template('auth/forgot.html')
     except:
-        return render_template(TEMP)
+        return render_template('auth/forgot.html')
 
 
 @bp.route('/login', methods=('GET', 'POST'))
@@ -255,58 +254,58 @@ def login():
         if g.user:
             return redirect(url_for('inbox.show'))
 
-        if request.method == 'GET':
-            username = ?
-            password = ?
+        if request.method == 'POST':
+            username = request.form['username']
+            password = request.form['password']
 
-            if ?:
+            if not username:
                 error = 'Username Field Required'
                 flash(error)
                 return render_template('auth/login.html')
 
-            if ?:
+            if not password:
                 error = 'Password Field Required'
                 flash(error)
                 return render_template(TEMP)
 
-            db = ?
+            db = get_db()
             error = None
             user = db.execute(
                 'SELECT * FROM user WHERE username = ?', (username,)
             ).fetchone()
             
-            if ?:
+            if username is None:
                 error = 'Incorrect username or password'
             elif not check_password_hash(user['password'], password + user['salt']):
                 error = 'Incorrect username or password'   
 
             if error is None:
                 session.clear()
-                session['user_id'] = user[?]
+                session['user_id'] = user['id']
                 return redirect(url_for('inbox.show'))
 
             flash(error)
 
-        return render_template(TEMP)
+        return render_template('auth/login.html')
     except:
         return render_template('auth/login.html')
         
 
 @bp.before_app_request
 def load_logged_in_user():
-    user_id = session.get(?)
+    user_id = session.get(user_id)
 
     if user_id is None:
         g.user = None
     else:
         g.user = get_db().execute(
-            QUERY, (user_id,)
+            "select * from user where id=?", (user_id,)
         ).fetchone()
 
         
 @bp.route('/logout')
 def logout():
-    session.?
+    session.clear()
     return redirect(url_for('auth.login'))
 
 
